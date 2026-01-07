@@ -1,141 +1,180 @@
-# Flask API Docker + Cloudflare Tunnel
+# Semantic Search & Matching API
+**FastAPI · SentenceTransformers · Supabase · Docker · Cloudflare Tunnel**
 
-A minimal Flask API containerized with Docker and securely published to the internet via Cloudflare Tunnel.
+A production-ready **embedding, matching, and retrieval engine** built with **FastAPI**, designed for **RAG pipelines, resume–job matching, and geo/time-aware semantic search**.
+The service auto-manages vector embeddings in **Supabase**, supports **hybrid (semantic + lexical) search**, and can be securely exposed to the internet using **Cloudflare Tunnel**.
+
+---
+
+## ✨ Features
+
+- 🔎 **Semantic & Hybrid Search**
+  - Vector similarity via SentenceTransformers
+  - Optional hybrid semantic + lexical ranking (Supabase RPC)
+  - Dataset + kind filtering
+  - Geo-radius search with distance boosting
+  - Optional time windows
+
+- 🧠 **Model Management**
+  - Lazy-loaded, thread-safe SentenceTransformer registry
+  - Hot-swap models at runtime
+  - Per-request model overrides
+
+- 🔁 **Auto-Embedding Worker**
+  - Background daemon refreshes stale or missing embeddings
+  - Detects changes via text hash tracking
+  - Batch upserts to Supabase
+
+- 🧾 **Text Matching**
+  - Resume → job sentence similarity scoring
+  - Sentence combination for better semantic coverage
+  - Top-K match support
+
+- 🚀 **Production Deployment**
+  - Dockerized API
+  - Secure public access via Cloudflare Tunnel
+  - Environment-driven configuration
+
+---
+
+## 🧱 Architecture Overview
+
+```
+Client
+  |
+  v
+FastAPI API
+  ├── /combine-match      (resume/job similarity)
+  ├── /search             (semantic or hybrid RAG search)
+  ├── /embed/*            (embedding admin)
+  └── /model              (model control)
+  |
+  v
+SentenceTransformers
+  |
+  v
+Supabase (Postgres + pgvector)
+  ├── Embeddings table
+  └── RPC search functions
+```
 
 ---
 
 ## 🚀 Quick Start
 
-### 1️⃣ Prerequisites
-- Docker Desktop installed
+### 1) Prerequisites
+- Docker Desktop
 - Cloudflare account
-- A domain added to Cloudflare and nameservers updated
+- Domain added to Cloudflare (nameservers updated)
 - `cloudflared` installed
+
 ```powershell
 winget install --id Cloudflare.cloudflared
 ```
+
 ---
 
-### 2️⃣ Build and Run the Flask API
+### 2) Configure Environment
+
+Create `.env.local`:
+```env
+SUPABASE_URL=your_url
+SUPABASE_KEY=your_key
+EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
+EMBED_TABLE=rag_docs
+```
+
+---
+
+### 3) Build & Run Locally
 
 ```powershell
 docker-compose up -d
 ```
 
-✅ Test locally:
-[http://localhost:5000](http://localhost:5000)
+API available at:
+```
+http://localhost:8000
+```
+
+Health check:
+```
+GET /health
+```
 
 ---
 
-### 3️⃣ Cloudflare Tunnel Setup
+## 🌐 Cloudflare Tunnel (Secure Public Access)
 
-**Authenticate:**
+### Authenticate
 ```powershell
 cloudflared tunnel login
 ```
 
-**Create a tunnel:**
+### Create or reuse tunnel
 ```powershell
-cloudflared tunnel create flask-tunnel
-```
-or if you are using an existing tunnel
-**Create a tunnel:**
-```powershell
-cloudflared tunnel token flask-tunnel
+cloudflared tunnel create semantic-api
 ```
 
-**Create config.yml:**
+or
+```powershell
+cloudflared tunnel token semantic-api
+```
+
+### Create config file
+
+**Path**
 ```
 C:\Users\YourUsername\.cloudflared\config.yml
 ```
-Content:
+
+**config.yml**
 ```yaml
-tunnel: flask-tunnel
-credentials-file: C:\Users\YourUsername\.cloudflared\<tunnel-UUID>.json
+tunnel: semantic-api
+credentials-file: C:\Users\YourUsername\.cloudflared\<UUID>.json
 
 ingress:
   - hostname: api.yourdomain.com
-    service: http://localhost:5000
+    service: http://localhost:8000
   - service: http_status:404
 ```
 
-**Create DNS route:**
+### Create DNS route
 ```powershell
-cloudflared tunnel route dns flask-tunnel api.yourdomain.com
+cloudflared tunnel route dns semantic-api api.yourdomain.com
 ```
 
-**Run the tunnel:**
+### Run tunnel
 ```powershell
-cloudflared tunnel run flask-tunnel
-```
-
-✅ Your API is live at:
-```
-https://api.yourdomain.com
+cloudflared tunnel run semantic-api
 ```
 
 ---
 
-## 📂 Files
+## 📂 Project Structure
 
-- `app.py` – Flask app
-- `requirements.txt` – Python dependencies
-- `Dockerfile` – Build instructions
-- `docker-compose.yml` – Docker Compose configuration
-
----
-
-## 🛠️ Useful Commands
-
-**Start containers:**
-```powershell
-docker-compose up -d
 ```
-
-**Stop containers:**
-```powershell
-docker-compose down
-```
-
-**Rebuild image:**
-```powershell
-docker-compose build
+.
+├── app.py
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+├── test.py
+├── test_search.py
+└── .env.local
 ```
 
 ---
 
 ## ⚠️ Notes
-- Make sure your Cloudflare domain is active (nameservers updated).
-- You can install the tunnel as a Windows Service:
-  ```powershell
-  cloudflared service install
-  net start CloudflareTunnel
-  ```
-- Use environment variables for sensitive settings.
+
+- Cloudflare Tunnel avoids exposing ports publicly
+- Use `.env.local` for secrets (never commit)
+- Supabase RPC functions must exist for hybrid search
+- Designed for moderate-scale RAG workloads
 
 ---
 
 ## 📄 License
 
 MIT License
-
----
-
-# Force a small embed pass over any dataset (bypass filtering)
-python test.py --base http://127.0.0.1:8000 --limit 25 --bypass-dataset
-
-# Re-embed a single row by id
-python test.py --base http://127.0.0.1:8000 --id "water_main_breaks/feature/8110"
-
-# Skip admin calls, only run /combine-match
-python test.py --base http://127.0.0.1:8000 --no-admin
-
-# 1 Basic (hybrid tests, no geo)
-python test_search.py --base http://127.0.0.1:8000 --dataset water_main_breaks
-
-# 3 Geo + tighter radius and stronger distance boost
-python test_search.py --base http://127.0.0.1:8000  --geo --radius 0.6 --geo-weight 0.7
-
-# 4 More results + geo
-python test_search.py --base http://127.0.0.1:8000 --dataset water_main_breaks --topk 15 --geo
-
